@@ -23,3 +23,10 @@ Victorian/
 
 # Ignore the final processed dataset (Phase 3)
 dataset.csv
+
+# Metadata
+stylo_feature_names.txt
+
+# Ignore Feature Engineering outputs (Phase 4)
+features.npz
+labels.npy
