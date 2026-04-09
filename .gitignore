@@ -1,0 +1,25 @@
+# Ignore the virtual environment
+venv/
+env/
+
+# Ignore Python cache files
+__pycache__/
+*.pyc
+
+# Ignore large model files we will create later
+*.pkl
+*.joblib
+models/
+
+# Ignore system files
+.DS_Store
+Thumbs.db
+
+# Ignore raw data folders (Phase 2)
+Renaissance/
+Enlightenment/
+Romantic/
+Victorian/
+
+# Ignore the final processed dataset (Phase 3)
+dataset.csv
