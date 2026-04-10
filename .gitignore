@@ -30,3 +30,7 @@ stylo_feature_names.txt
 # Ignore Feature Engineering outputs (Phase 4)
 features.npz
 labels.npy
+
+*.pkl
+*.png
+best_model_name.txt
