@@ -70,7 +70,8 @@ print("="*50)
 
 svm_model = LinearSVC(
     C=1.0,
-    max_iter=2000,
+    max_iter=10000,
+    dual=False,
     class_weight='balanced'   # handles Renaissance having fewer samples
 )
 svm_model.fit(X_train, y_train)
