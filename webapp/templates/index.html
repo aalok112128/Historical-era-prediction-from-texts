@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Author Era Identifier</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      background: #0f0f1a;
+      color: #e0e0e0;
+      min-height: 100vh;
+      padding: 30px 20px;
+    }
+
+    .container {
+      max-width: 860px;
+      margin: 0 auto;
+    }
+
+    /* ── Header ── */
+    .header {
+      text-align: center;
+      margin-bottom: 36px;
+    }
+    .header h1 {
+      font-size: 2rem;
+      font-weight: 700;
+      color: #fff;
+      letter-spacing: -0.5px;
+    }
+    .header p {
+      color: #888;
+      margin-top: 8px;
+      font-size: 0.95rem;
+    }
+    .badge {
+      display: inline-block;
+      margin-top: 12px;
+      padding: 4px 14px;
+      border-radius: 20px;
+      font-size: 0.75rem;
+      background: #1e1e3a;
+      color: #7f77dd;
+      border: 1px solid #534AB7;
+    }
+
+    /* ── Input card ── */
+    .card {
+      background: #16162a;
+      border: 1px solid #2a2a4a;
+      border-radius: 14px;
+      padding: 28px;
+      margin-bottom: 24px;
+    }
+
+    .card label {
+      display: block;
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: #888;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      margin-bottom: 10px;
+    }
+
+    textarea {
+      width: 100%;
+      height: 200px;
+      background: #0f0f1a;
+      border: 1px solid #2a2a4a;
+      border-radius: 10px;
+      color: #e0e0e0;
+      font-size: 0.95rem;
+      font-family: inherit;
+      padding: 14px;
+      resize: vertical;
+      line-height: 1.6;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    textarea:focus { border-color: #534AB7; }
+
+    .input-footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 14px;
+    }
+    .word-count { font-size: 0.82rem; color: #555; }
+
+    .btn-row { display: flex; gap: 10px; }
+
+    button {
+      padding: 10px 24px;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      border: none;
+      transition: opacity 0.15s, transform 0.1s;
+    }
+    button:active { transform: scale(0.97); }
+
+    .btn-predict {
+      background: #534AB7;
+      color: #fff;
+    }
+    .btn-predict:hover { opacity: 0.88; }
+    .btn-predict:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    .btn-clear {
+      background: transparent;
+      color: #888;
+      border: 1px solid #2a2a4a;
+    }
+    .btn-clear:hover { border-color: #534AB7; color: #fff; }
+
+    /* ── Loading bar ── */
+    .loader {
+      height: 3px;
+      background: #534AB7;
+      border-radius: 2px;
+      width: 0;
+      transition: width 0.6s ease;
+      margin-top: 14px;
+    }
+
+    /* ── Result card ── */
+    .result-card {
+      background: #16162a;
+      border: 1px solid #2a2a4a;
+      border-radius: 14px;
+      overflow: hidden;
+      display: none;
+    }
+    .result-card.show { display: block; }
+
+    .result-header {
+      padding: 10px 20px;
+      font-size: 0.72rem;
+      font-weight: 600;
+      color: #555;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      border-bottom: 1px solid #2a2a4a;
+    }
+
+    .result-main {
+      padding: 24px;
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      border-bottom: 1px solid #2a2a4a;
+    }
+
+    .era-dot {
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .era-text h2 {
+      font-size: 1.5rem;
+      color: #fff;
+      font-weight: 700;
+    }
+    .era-text .years {
+      font-size: 0.85rem;
+      color: #666;
+      margin-top: 2px;
+    }
+    .era-text .authors {
+      font-size: 0.82rem;
+      color: #888;
+      margin-top: 6px;
+    }
+    .era-text .traits {
+      font-size: 0.8rem;
+      color: #555;
+      margin-top: 4px;
+      font-style: italic;
+    }
+
+    /* ── Confidence bars ── */
+    .section {
+      padding: 20px 24px;
+      border-bottom: 1px solid #2a2a4a;
+    }
+    .section-title {
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: #555;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+      margin-bottom: 14px;
+    }
+
+    .conf-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 10px;
+    }
+    .conf-label {
+      font-size: 0.82rem;
+      color: #888;
+      width: 120px;
+      flex-shrink: 0;
+    }
+    .conf-bar-bg {
+      flex: 1;
+      height: 8px;
+      background: #0f0f1a;
+      border-radius: 4px;
+      overflow: hidden;
+      border: 1px solid #2a2a4a;
+    }
+    .conf-bar-fill {
+      height: 100%;
+      border-radius: 4px;
+      transition: width 0.8s ease;
+    }
+    .conf-pct {
+      font-size: 0.82rem;
+      color: #666;
+      width: 40px;
+      text-align: right;
+    }
+
+    /* ── Stylometric signals ── */
+    .signals-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+    }
+    .signal-chip {
+      background: #0f0f1a;
+      border: 1px solid #2a2a4a;
+      border-radius: 8px;
+      padding: 10px 12px;
+    }
+    .signal-chip .sig-label {
+      font-size: 0.72rem;
+      color: #555;
+      margin-bottom: 4px;
+    }
+    .signal-chip .sig-value {
+      font-size: 0.9rem;
+      color: #ccc;
+      font-weight: 600;
+    }
+
+    /* ── Error ── */
+    .error-box {
+      background: #2a1212;
+      border: 1px solid #993C1D;
+      border-radius: 10px;
+      padding: 14px 18px;
+      color: #f09595;
+      font-size: 0.9rem;
+      margin-top: 14px;
+      display: none;
+    }
+    .error-box.show { display: block; }
+
+    /* ── Era colours ── */
+    .era-Renaissance   { background: #534AB7; }
+    .era-Enlightenment { background: #0F6E56; }
+    .era-Romantic      { background: #993C1D; }
+    .era-Victorian     { background: #185FA5; }
+
+    .fill-Renaissance   { background: #534AB7; }
+    .fill-Enlightenment { background: #0F6E56; }
+    .fill-Romantic      { background: #993C1D; }
+    .fill-Victorian     { background: #185FA5; }
+  </style>
+</head>
+<body>
+<div class="container">
+
+  <!-- Header -->
+  <div class="header">
+    <h1>Author Era Identifier</h1>
+    <p>Paste a passage of English literature and the model will identify its historical era.</p>
+    <span class="badge">SVM · TF-IDF + Stylometry · 84.67% book-level accuracy</span>
+  </div>
+
+  <!-- Input -->
+  <div class="card">
+    <label>Your text</label>
+    <textarea id="txt"
+      placeholder="Paste at least 50 words of literature here — a paragraph from any old English book works best..."></textarea>
+
+    <div class="input-footer">
+      <span class="word-count" id="wc">0 words</span>
+      <div class="btn-row">
+        <button class="btn-clear" onclick="clearAll()">Clear</button>
+        <button class="btn-predict" id="btn"
+                onclick="predict()" disabled>Identify Era</button>
+      </div>
+    </div>
+    <div class="loader" id="loader"></div>
+  </div>
+
+  <!-- Error -->
+  <div class="error-box" id="err"></div>
+
+  <!-- Result -->
+  <div class="result-card" id="result">
+    <div class="result-header">Prediction Result</div>
+
+    <div class="result-main">
+      <div class="era-dot" id="dot"></div>
+      <div class="era-text">
+        <h2 id="era-name">—</h2>
+        <div class="years"  id="era-years">—</div>
+        <div class="authors" id="era-authors">—</div>
+        <div class="traits"  id="era-traits">—</div>
+      </div>
+    </div>
+
+    <!-- Confidence -->
+    <div class="section">
+      <div class="section-title">Confidence across all eras</div>
+      <div id="conf-bars"></div>
+    </div>
+
+    <!-- Stylometric signals -->
+    <div class="section">
+      <div class="section-title">Stylometric signals detected</div>
+      <div class="signals-grid" id="signals"></div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+const txt  = document.getElementById('txt');
+const btn  = document.getElementById('btn');
+const wc   = document.getElementById('wc');
+const err  = document.getElementById('err');
+const res  = document.getElementById('result');
+const load = document.getElementById('loader');
+
+txt.addEventListener('input', () => {
+  const words = txt.value.trim() ? txt.value.trim().split(/\s+/).length : 0;
+  wc.textContent = words + ' words';
+  btn.disabled   = words < 50;
+  res.classList.remove('show');
+  err.classList.remove('show');
+});
+
+function clearAll() {
+  txt.value = '';
+  wc.textContent = '0 words';
+  btn.disabled = true;
+  res.classList.remove('show');
+  err.classList.remove('show');
+}
+
+async function predict() {
+  btn.disabled  = true;
+  load.style.width = '60%';
+  err.classList.remove('show');
+  res.classList.remove('show');
+
+  try {
+    const response = await fetch('/predict', {
+      method : 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body   : JSON.stringify({ text: txt.value })
+    });
+
+    const data = await response.json();
+    load.style.width = '100%';
+
+    setTimeout(() => {
+      load.style.width = '0%';
+      btn.disabled = false;
+
+      if (data.error) {
+        err.textContent = data.error;
+        err.classList.add('show');
+        return;
+      }
+
+      // ── Fill result ──────────────────────────────────
+      const era = data.era;
+
+      document.getElementById('dot').className =
+        'era-dot era-' + era;
+      document.getElementById('era-name').textContent =
+        era + ' Era';
+      document.getElementById('era-years').textContent =
+        data.info.years;
+      document.getElementById('era-authors').textContent =
+        'Key authors: ' + data.info.authors;
+      document.getElementById('era-traits').textContent =
+        data.info.traits;
+
+      // Confidence bars
+      const confDiv = document.getElementById('conf-bars');
+      confDiv.innerHTML = '';
+      const eras = ['Renaissance','Enlightenment','Romantic','Victorian'];
+      eras.forEach(e => {
+        const pct = data.confidence[e] || 0;
+        confDiv.innerHTML += `
+          <div class="conf-row">
+            <span class="conf-label">${e}</span>
+            <div class="conf-bar-bg">
+              <div class="conf-bar-fill fill-${e}"
+                   style="width:${pct}%"></div>
+            </div>
+            <span class="conf-pct">${pct}%</span>
+          </div>`;
+      });
+
+      // Stylometric signals
+      const sigDiv = document.getElementById('signals');
+      sigDiv.innerHTML = '';
+      Object.entries(data.signals).forEach(([label, val]) => {
+        sigDiv.innerHTML += `
+          <div class="signal-chip">
+            <div class="sig-label">${label}</div>
+            <div class="sig-value">${val}</div>
+          </div>`;
+      });
+
+      res.classList.add('show');
+    }, 400);
+
+  } catch(e) {
+    load.style.width = '0%';
+    btn.disabled = false;
+    err.textContent = 'Connection error — make sure the Flask server is running.';
+    err.classList.add('show');
+  }
+}
+</script>
+</body>
+</html>
