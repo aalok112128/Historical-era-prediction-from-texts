@@ -31,6 +31,11 @@ stylo_feature_names.txt
 features.npz
 labels.npy
 
+# ignore results
+results.json
+project_report.html
+validation_results.json
+
 *.pkl
 *.png
 best_model_name.txt

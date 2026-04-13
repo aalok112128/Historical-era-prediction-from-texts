@@ -205,3 +205,26 @@ print("  best_model_name.txt    — name of best model")
 print("  confusion_matrices.png — visual evaluation")
 print("  accuracy_comparison.png — bar chart")
 print("\nNext step: BERT model (innovation layer)")
+
+import json
+
+# Save results to file so report can load them automatically
+results_to_save = {
+    "Naive Bayes"   : {
+        "Accuracy": round(nb_acc * 100, 2),
+        "F1 Score": round(nb_f1, 4)
+    },
+    "SVM"           : {
+        "Accuracy": round(svm_acc * 100, 2),
+        "F1 Score": round(svm_f1, 4)
+    },
+    "Random Forest" : {
+        "Accuracy": round(rf_acc * 100, 2),
+        "F1 Score": round(rf_f1, 4)
+    },
+}
+
+with open("results.json", "w") as f:
+    json.dump(results_to_save, f, indent=2)
+
+print("Saved: results.json")

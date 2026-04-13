@@ -87,9 +87,21 @@ for i, text in enumerate(texts):
     if (i + 1) % 500 == 0:
         print(f"  Processed {i+1}/{len(texts)} chunks...")
 
-stylo_array  = np.array(stylo_list)
-stylo_sparse = csr_matrix(stylo_array)
+from sklearn.preprocessing import MinMaxScaler
+
+stylo_array = np.array(stylo_list)
+
+# Scale stylometric features to 0-1 range
+# This fixes the scale mismatch between TF-IDF and stylometric values
+scaler       = MinMaxScaler()
+stylo_scaled = scaler.fit_transform(stylo_array)
+stylo_sparse = csr_matrix(stylo_scaled)
 print(f"Stylometric matrix shape: {stylo_array.shape}")
+
+# Save scaler — web demo needs this too
+with open("scaler.pkl", "wb") as f:
+    pickle.dump(scaler, f)
+print("Saved: scaler.pkl")
 # Expect: (3964, 6)
 
 

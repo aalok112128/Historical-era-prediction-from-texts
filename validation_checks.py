@@ -1,12 +1,11 @@
 import numpy as np
 import pandas as pd
 import pickle
+import json
 import scipy.sparse
 import matplotlib.pyplot as plt
-import seaborn as sns
 import warnings
 import nltk
-import string
 from nltk.tokenize import sent_tokenize, word_tokenize
 from nltk.corpus import stopwords
 from collections import Counter
@@ -15,7 +14,8 @@ from sklearn.svm import LinearSVC
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics import accuracy_score, f1_score, classification_report
-from sklearn.model_selection import LeaveOneGroupOut
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import MinMaxScaler
 from scipy.sparse import hstack, csr_matrix
 
 warnings.filterwarnings('ignore')
@@ -23,14 +23,14 @@ nltk.download('punkt',     quiet=True)
 nltk.download('stopwords', quiet=True)
 nltk.download('punkt_tab', quiet=True)
 
+
 # ════════════════════════════════════════════════════════════
 # LOAD DATASET
 # ════════════════════════════════════════════════════════════
 print("Loading dataset...")
-df = pd.read_csv("dataset.csv")
+df     = pd.read_csv("dataset.csv")
 texts  = df['text'].tolist()
 labels = df['label'].tolist()
-groups = df['source'].tolist()   # e.g. "Renaissance/1515.txt"
 
 print(f"Total chunks : {len(df)}")
 print(f"Unique books : {df['source'].nunique()}")
@@ -59,66 +59,57 @@ def extract_stylometric_features(text):
     hapax_ratio   = hapax / len(set(words_only))
     function_words = {"the","of","and","a","in","to","is","was",
                       "it","that","he","she","his","her","they"}
-    func_freq = sum(1 for w in words_only if w in function_words)/len(words_only)
+    func_freq = sum(1 for w in words_only if w in function_words) / len(words_only)
     return [avg_sent_len, ttr, avg_word_len,
             punct_density, hapax_ratio, func_freq]
 
 
 # ════════════════════════════════════════════════════════════
 # HELPER: BUILD FEATURE MATRIX
-# (can be called with or without stylometry)
 # ════════════════════════════════════════════════════════════
-def build_features(texts, vectorizer=None, fit=True, use_stylometry=True):
-    """
-    Returns combined feature matrix.
-    fit=True  → fit+transform (for training data)
-    fit=False → transform only (for test data)
-    """
+def build_features(texts, vectorizer=None, scaler=None,
+                   fit=True, use_stylometry=True):
     if fit:
-        vect = TfidfVectorizer(
-            max_features=5000,
-            ngram_range=(1, 2),
-            stop_words='english',
-            sublinear_tf=True
-        )
+        vect  = TfidfVectorizer(max_features=5000, ngram_range=(1, 2),
+                                stop_words='english', sublinear_tf=True)
         tfidf = vect.fit_transform(texts)
     else:
         vect  = vectorizer
         tfidf = vect.transform(texts)
 
     if not use_stylometry:
-        return tfidf, vect
+        return tfidf, vect, None
 
     stylo = np.array([extract_stylometric_features(t) for t in texts])
-    combined = hstack([tfidf, csr_matrix(stylo)])
-    return combined, vect
+    if fit:
+        sc           = MinMaxScaler()
+        stylo_scaled = sc.fit_transform(stylo)
+    else:
+        sc           = scaler
+        stylo_scaled = sc.transform(stylo)
+
+    combined = hstack([tfidf, csr_matrix(stylo_scaled)])
+    return combined, vect, sc
 
 
 # ════════════════════════════════════════════════════════════
-# CHECK 1 — BOOK-LEVEL SPLIT (real generalisation test)
+# CHECK 1 — BOOK-LEVEL SPLIT (generalisation test)
 # ════════════════════════════════════════════════════════════
-# Train on 12 books, test on 4 completely unseen books
-# (one held-out book per era)
-# This proves the model generalises — not just memorising
-
 print("=" * 60)
 print("CHECK 1 — BOOK-LEVEL SPLIT (generalisation test)")
 print("=" * 60)
 print("Holding out 1 book per era as unseen test data...")
 print("Model has NEVER seen these books during training.\n")
 
-# One held-out book per era — chosen as the smallest book
-# so training data stays large
 held_out = {
-    'Renaissance'   : 'Renaissance/779.txt',    # Doctor Faustus (shortest)
-    'Enlightenment' : 'Enlightenment/147.txt',  # Common Sense (shortest)
-    'Romantic'      : 'Romantic/9622.txt',      # Lyrical Ballads (shortest)
-    'Victorian'     : 'Victorian/174.txt',      # Dorian Gray
+    'Renaissance'   : 'Renaissance/779.txt',
+    'Enlightenment' : 'Enlightenment/147.txt',
+    'Romantic'      : 'Romantic/9622.txt',
+    'Victorian'     : 'Victorian/174.txt',
 }
 
-test_mask  = df['source'].isin(held_out.values())
-train_mask = ~test_mask
-
+test_mask    = df['source'].isin(held_out.values())
+train_mask   = ~test_mask
 train_texts  = df.loc[train_mask, 'text'].tolist()
 train_labels = df.loc[train_mask, 'label'].tolist()
 test_texts   = df.loc[test_mask,  'text'].tolist()
@@ -126,21 +117,23 @@ test_labels  = df.loc[test_mask,  'label'].tolist()
 
 print(f"Training chunks : {len(train_texts)}")
 print(f"Testing  chunks : {len(test_texts)}")
-print(f"Held-out books  :")
+print("Held-out books  :")
 for era, src in held_out.items():
     n = df[df['source'] == src].shape[0]
     print(f"  {era:15s} → {src}  ({n} chunks)")
 
-# Build features
 print("\nBuilding features for book-level split...")
-X_train_bl, vect_bl = build_features(train_texts, fit=True)
-X_test_bl,  _       = build_features(test_texts, vectorizer=vect_bl, fit=False)
+X_train_bl, vect_bl, sc_bl = build_features(train_texts, fit=True)
+X_test_bl,  _,       _     = build_features(test_texts,
+                                             vectorizer=vect_bl,
+                                             scaler=sc_bl,
+                                             fit=False)
 
-# Train and evaluate all 3 models
 bl_results = {}
 for name, model in [
     ('Naive Bayes',   ComplementNB(alpha=0.1)),
-    ('SVM',           LinearSVC(C=1.0, max_iter=5000, class_weight='balanced')),
+    ('SVM',           LinearSVC(C=1.0, max_iter=5000,
+                               class_weight='balanced', random_state=42)),
     ('Random Forest', RandomForestClassifier(n_estimators=200, random_state=42,
                                              class_weight='balanced', n_jobs=-1)),
 ]:
@@ -160,84 +153,154 @@ print(bl_df.round(4))
 
 
 # ════════════════════════════════════════════════════════════
-# CHECK 2 — STYLOMETRY ABLATION STUDY
-# (with vs without stylometric features)
+# CHECK 1B — BOOK-LEVEL ABLATION
 # ════════════════════════════════════════════════════════════
-# This gives you the NUMBERS to prove stylometry helps
+print("\n" + "=" * 60)
+print("CHECK 1B — BOOK-LEVEL ABLATION")
+print("Does stylometry help on completely UNSEEN books too?")
+print("=" * 60)
 
+X_train_bl_no, vect_bl_no, _ = build_features(
+    train_texts, fit=True, use_stylometry=False)
+X_test_bl_no,  _,          _ = build_features(
+    test_texts, vectorizer=vect_bl_no, scaler=None,
+    fit=False, use_stylometry=False)
+
+bl_no_results = {}
+for name, model in [
+    ('Naive Bayes',   ComplementNB(alpha=0.1)),
+    ('SVM',           LinearSVC(C=1.0, max_iter=5000,
+                               class_weight='balanced', random_state=42)),
+    ('Random Forest', RandomForestClassifier(n_estimators=200, random_state=42,
+                                             class_weight='balanced', n_jobs=-1)),
+]:
+    model.fit(X_train_bl_no, train_labels)
+    preds = model.predict(X_test_bl_no)
+    acc   = accuracy_score(test_labels, preds)
+    f1    = f1_score(test_labels, preds, average='weighted')
+    bl_no_results[name] = {'Accuracy': acc, 'F1 Score': f1}
+
+print("\nBOOK-LEVEL ABLATION — FULL COMPARISON TABLE")
+print("=" * 60)
+book_ablation_rows = []
+for name in ['Naive Bayes', 'SVM', 'Random Forest']:
+    without = bl_no_results[name]['Accuracy']
+    with_s  = bl_results[name]['Accuracy']
+    diff    = (with_s - without) * 100
+    book_ablation_rows.append({
+        'Model'              : name,
+        'Without Stylometry' : f"{without*100:.2f}%",
+        'With Stylometry'    : f"{with_s*100:.2f}%",
+        'Improvement'        : f"+{diff:.2f}%" if diff >= 0 else f"{diff:.2f}%",
+        'positive'           : diff >= 0
+    })
+
+book_abl_df = pd.DataFrame(book_ablation_rows)
+print(book_abl_df[['Model','Without Stylometry',
+                    'With Stylometry','Improvement']].to_string(index=False))
+
+
+# ════════════════════════════════════════════════════════════
+# CHECK 2 — STYLOMETRY ABLATION STUDY
+# Uses SAME saved features as train_models.py for consistency
+# ════════════════════════════════════════════════════════════
 print("\n" + "=" * 60)
 print("CHECK 2 — STYLOMETRY ABLATION STUDY")
 print("Does adding stylometric features actually improve results?")
 print("=" * 60)
 
-from sklearn.model_selection import train_test_split
+# Load exact same features used in train_models.py
+X_full = scipy.sparse.load_npz("features.npz")
+y_full = np.load("labels.npy", allow_pickle=True)
 
-X_tr_texts, X_te_texts, y_tr, y_te = train_test_split(
-    texts, labels, test_size=0.2, random_state=42, stratify=labels
+# Same split as train_models.py — guarantees identical numbers
+X_tr, X_te, y_tr, y_te = train_test_split(
+    X_full, y_full, test_size=0.2, random_state=42, stratify=y_full
 )
 
+# WITH stylometry — use full saved feature matrix
+print("\n--- With Stylometry (from saved features.npz) ---")
 ablation_results = {}
 
-for use_stylo in [False, True]:
-    label_tag = "With Stylometry" if use_stylo else "Without Stylometry"
-    print(f"\n--- {label_tag} ---")
+for name, model in [
+    ('Naive Bayes',   ComplementNB(alpha=0.1)),
+    ('SVM',           LinearSVC(C=1.0, max_iter=5000,
+                               class_weight='balanced', random_state=42)),
+    ('Random Forest', RandomForestClassifier(n_estimators=200, random_state=42,
+                                             class_weight='balanced', n_jobs=-1)),
+]:
+    model.fit(X_tr, y_tr)
+    preds = model.predict(X_te)
+    acc   = accuracy_score(y_te, preds)
+    f1    = f1_score(y_te, preds, average='weighted')
+    ablation_results[(name, 'With Stylometry')] = {'Accuracy': acc, 'F1': f1}
+    print(f"  {name:15s} → Accuracy: {acc*100:.2f}%  F1: {f1:.4f}")
 
-    X_tr, vect_ab = build_features(X_tr_texts, fit=True,
-                                   use_stylometry=use_stylo)
-    X_te, _       = build_features(X_te_texts, vectorizer=vect_ab,
-                                   fit=False, use_stylometry=use_stylo)
+# WITHOUT stylometry — TF-IDF only, same split
+print("\n--- Without Stylometry (TF-IDF only) ---")
+tfidf_only = TfidfVectorizer(max_features=5000, ngram_range=(1, 2),
+                              stop_words='english', sublinear_tf=True)
+tfidf_full = tfidf_only.fit_transform(texts)
 
-    for name, model in [
-        ('Naive Bayes',   ComplementNB(alpha=0.1)),
-        ('SVM',           LinearSVC(C=1.0, max_iter=5000,
-                                   class_weight='balanced')),
-        ('Random Forest', RandomForestClassifier(n_estimators=200,
-                                                 random_state=42,
-                                                 class_weight='balanced',
-                                                 n_jobs=-1)),
-    ]:
-        model.fit(X_tr, y_tr)
-        preds = model.predict(X_te)
-        acc   = accuracy_score(y_te, preds)
-        f1    = f1_score(y_te, preds, average='weighted')
-        key   = (name, label_tag)
-        ablation_results[key] = {'Accuracy': acc, 'F1': f1}
-        print(f"  {name:15s} → Accuracy: {acc*100:.2f}%  F1: {f1:.4f}")
+X_tr_no, X_te_no, y_tr_no, y_te_no = train_test_split(
+    tfidf_full, y_full, test_size=0.2, random_state=42, stratify=y_full
+)
 
-# Build clean comparison table
+for name, model in [
+    ('Naive Bayes',   ComplementNB(alpha=0.1)),
+    ('SVM',           LinearSVC(C=1.0, max_iter=5000,
+                               class_weight='balanced', random_state=42)),
+    ('Random Forest', RandomForestClassifier(n_estimators=200, random_state=42,
+                                             class_weight='balanced', n_jobs=-1)),
+]:
+    model.fit(X_tr_no, y_tr_no)
+    preds = model.predict(X_te_no)
+    acc   = accuracy_score(y_te_no, preds)
+    f1    = f1_score(y_te_no, preds, average='weighted')
+    ablation_results[(name, 'Without Stylometry')] = {'Accuracy': acc, 'F1': f1}
+    print(f"  {name:15s} → Accuracy: {acc*100:.2f}%  F1: {f1:.4f}")
+
+# Comparison table
 print("\n\nABLATION STUDY — FULL COMPARISON TABLE")
 print("=" * 60)
 rows = []
 for name in ['Naive Bayes', 'SVM', 'Random Forest']:
-    without = ablation_results[(name, 'Without Stylometry')]
-    with_s  = ablation_results[(name, 'With Stylometry')]
-    diff    = (with_s['Accuracy'] - without['Accuracy']) * 100
+    without = ablation_results[(name, 'Without Stylometry')]['Accuracy']
+    with_s  = ablation_results[(name, 'With Stylometry')]['Accuracy']
+    diff    = (with_s - without) * 100
     rows.append({
         'Model'              : name,
-        'Without Stylometry' : f"{without['Accuracy']*100:.2f}%",
-        'With Stylometry'    : f"{with_s['Accuracy']*100:.2f}%",
-        'Improvement'        : f"+{diff:.2f}%" if diff >= 0 else f"{diff:.2f}%"
+        'Without Stylometry' : f"{without*100:.2f}%",
+        'With Stylometry'    : f"{with_s*100:.2f}%",
+        'Improvement'        : f"+{diff:.2f}%" if diff >= 0 else f"{diff:.2f}%",
+        'positive'           : diff >= 0
     })
-ablation_df = pd.DataFrame(rows)
-print(ablation_df.to_string(index=False))
+
+abl_df = pd.DataFrame(rows)
+print(abl_df[['Model','Without Stylometry',
+              'With Stylometry','Improvement']].to_string(index=False))
 
 
 # ════════════════════════════════════════════════════════════
 # SAVE CHARTS
 # ════════════════════════════════════════════════════════════
 
-# Chart 1 — Book-level vs chunk-level accuracy comparison
+# Chart 1 — Book-level vs chunk-level accuracy
 fig, ax = plt.subplots(figsize=(10, 5))
-models    = ['Naive Bayes', 'SVM', 'Random Forest']
-chunk_acc = [0.9559, 0.9823, 0.9697]   # from your earlier run
-book_acc  = [bl_results[m]['Accuracy'] for m in models]
+models = ['Naive Bayes', 'SVM', 'Random Forest']
+
+with open("results.json") as f:
+    res_json = json.load(f)
+
+chunk_acc = [res_json[m]['Accuracy'] for m in models]
+book_acc  = [bl_results[m]['Accuracy'] * 100 for m in models]
 
 x     = np.arange(len(models))
 width = 0.35
-bars1 = ax.bar(x - width/2, [v*100 for v in chunk_acc],
-               width, label='Chunk-level (original)', color='#534AB7')
-bars2 = ax.bar(x + width/2, [v*100 for v in book_acc],
-               width, label='Book-level (honest)',    color='#1D9E75')
+bars1 = ax.bar(x - width/2, chunk_acc, width,
+               label='Chunk-level (original)', color='#534AB7')
+bars2 = ax.bar(x + width/2, book_acc,  width,
+               label='Book-level (honest)',    color='#1D9E75')
 
 for bar in bars1 + bars2:
     ax.text(bar.get_x() + bar.get_width()/2,
@@ -252,23 +315,22 @@ ax.set_xticks(x)
 ax.set_xticklabels(models)
 ax.set_ylim(0, 110)
 ax.legend()
-ax.axhline(y=25, color='red', linestyle='--',
-           alpha=0.4, label='Random baseline')
+ax.axhline(y=25, color='red', linestyle='--', alpha=0.4)
 plt.tight_layout()
 plt.savefig('book_vs_chunk_accuracy.png', dpi=150, bbox_inches='tight')
 print("\nSaved: book_vs_chunk_accuracy.png")
 
-# Chart 2 — Ablation study bar chart
+# Chart 2 — Ablation study
 fig2, ax2 = plt.subplots(figsize=(10, 5))
-without_vals = [ablation_results[(m,'Without Stylometry')]['Accuracy']*100
-                for m in models]
-with_vals    = [ablation_results[(m,'With Stylometry')]['Accuracy']*100
-                for m in models]
+without_vals = [float(r['Without Stylometry'].replace('%', '')) for r in rows]
+with_vals    = [float(r['With Stylometry'].replace('%', ''))    for r in rows]
+model_names  = [r['Model'] for r in rows]
 
-bars3 = ax2.bar(x - width/2, without_vals,
-                width, label='TF-IDF only',             color='#D85A30')
-bars4 = ax2.bar(x + width/2, with_vals,
-                width, label='TF-IDF + Stylometry',     color='#534AB7')
+x2     = np.arange(len(model_names))
+bars3  = ax2.bar(x2 - width/2, without_vals, width,
+                 label='TF-IDF only',         color='#D85A30')
+bars4  = ax2.bar(x2 + width/2, with_vals,    width,
+                 label='TF-IDF + Stylometry', color='#534AB7')
 
 for bar in bars3 + bars4:
     ax2.text(bar.get_x() + bar.get_width()/2,
@@ -279,13 +341,42 @@ for bar in bars3 + bars4:
 ax2.set_ylabel('Accuracy (%)')
 ax2.set_title('Ablation Study — Impact of Stylometric Features',
               fontweight='bold')
-ax2.set_xticks(x)
-ax2.set_xticklabels(models)
+ax2.set_xticks(x2)
+ax2.set_xticklabels(model_names)
 ax2.set_ylim(0, 110)
 ax2.legend()
 plt.tight_layout()
 plt.savefig('ablation_study.png', dpi=150, bbox_inches='tight')
 print("Saved: ablation_study.png")
+
+
+# ════════════════════════════════════════════════════════════
+# SAVE JSON RESULTS
+# ════════════════════════════════════════════════════════════
+ablation_save = []
+for r in rows:
+    ablation_save.append({
+        "Model"              : r['Model'],
+        "Without Stylometry" : r['Without Stylometry'],
+        "With Stylometry"    : r['With Stylometry'],
+        "Improvement"        : r['Improvement'],
+        "positive"           : r['positive']
+    })
+
+validation_to_save = {
+    "book_level": {
+        name: {
+            "Accuracy": round(vals["Accuracy"] * 100, 2),
+            "F1 Score": round(vals["F1 Score"], 4)
+        }
+        for name, vals in bl_results.items()
+    },
+    "book_level_ablation": book_ablation_rows,
+    "ablation"           : ablation_save
+}
+
+with open("validation_results.json", "w") as f:
+    json.dump(validation_to_save, f, indent=2)
 
 print("\n" + "=" * 60)
 print("ALL CHECKS COMPLETE")
@@ -293,4 +384,5 @@ print("=" * 60)
 print("\nKey files saved:")
 print("  book_vs_chunk_accuracy.png — proves generalisation")
 print("  ablation_study.png         — proves stylometry helps")
+print("  validation_results.json    — all results for report")
 print("\nUse the ablation table in your report's innovation section!")

@@ -31,7 +31,11 @@ print("Loading vectorizer...")
 with open(VECT_PATH, "rb") as f:
     vectorizer = pickle.load(f)
 
-print("Model and vectorizer loaded successfully!")
+SCALER_PATH = os.path.join(BASE_DIR, "scaler.pkl")
+with open(SCALER_PATH, "rb") as f:
+    scaler = pickle.load(f)
+
+print("Model, vectorizer and scaler loaded successfully!")
 
 # ── Era information for display ──────────────────────────────
 ERA_INFO = {
@@ -91,9 +95,10 @@ def predict_era(text):
     # Step 1 — TF-IDF
     tfidf = vectorizer.transform([text])
 
-    # Step 2 — Stylometry
+    # Step 2 — Stylometry (scaled to match training)
     stylo        = np.array([extract_stylometric_features(text)])
-    stylo_sparse = csr_matrix(stylo)
+    stylo_scaled = scaler.transform(stylo)
+    stylo_sparse = csr_matrix(stylo_scaled)
 
     # Step 3 — Combine
     combined = hstack([tfidf, stylo_sparse])
